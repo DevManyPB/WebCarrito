@@ -165,7 +165,7 @@
         <div class="tele">
           <div id="dist" class="big">--<small>cm</small></div>
           <div class="chips">
-            <span id="chipMode" class="chip">MANUAL</span>
+            <span id="chipMode" class="chip auto">AUTÓNOMO</span>
             <span id="chipEcho" class="chip">Sin datos</span>
           </div>
           <div class="bar"><i id="distBar"></i></div>
@@ -195,8 +195,8 @@
       <section class="card">
         <h2>Manejo</h2>
         <div class="modes">
-          <button id="btnManual" class="selected" data-cmd="M">Manual</button>
-          <button id="btnAuto" data-cmd="A">Autónomo</button>
+          <button id="btnManual" data-cmd="M">Manual</button>
+          <button id="btnAuto" class="selected" data-cmd="A">Autónomo</button>
         </div>
         <div class="dpad">
           <span class="empty"></span>
@@ -269,7 +269,7 @@
     const RESEND_MS = 250;                                   // reenvio mientras se mantiene un boton (firmware para a los 800 ms)
 
     const $ = (id) => document.getElementById(id);
-    const state = { mode: 'M', targetMode: 'M', modeLockUntil: 0, angle: 39, cal: { C: 39, I: 94, D: 15 }, lastData: 0 };
+    const state = { mode: 'A', targetMode: 'A', modeLockUntil: 0, angle: 39, cal: { C: 39, I: 94, D: 15 }, lastData: 0 };
 
     // ------------------------------------------------------------------ Registro
     function log(text, cls) {
@@ -516,7 +516,11 @@
     let driveTimer = null, driveCmd = null, driveBtn = null;
 
     function startDrive(cmd, btn) {
-      if (!link) { log('Conéctate primero', 'err'); return; }
+      if (!link) {
+        log('Primero conéctate por Bluetooth con el botón de arriba', 'err');
+        alert('⚠️ Primero debes conectarte al carrito con el botón "Conectar Bluetooth" arriba.');
+        return;
+      }
       if (driveCmd === cmd) return;
       stopDrive(false);
       driveCmd = cmd; driveBtn = btn;
@@ -575,6 +579,11 @@
 
     let modeRetryTimer = null;
     function changeMode(newMode) {
+      if (!link) {
+        log('Primero conéctate por Bluetooth con el botón de arriba', 'err');
+        alert('⚠️ Primero debes conectarte al carrito con el botón "Conectar Bluetooth" arriba.');
+        return;
+      }
       stopDrive(false);
       state.targetMode = newMode;
       state.modeLockUntil = Date.now() + 2500;
