@@ -483,6 +483,10 @@
       if (ang !== undefined) state.angle = ang;
       if (d.v !== undefined && document.activeElement !== $('speed')) { $('speed').value = d.v; $('speedVal').textContent = d.v; }
       if (d.f !== undefined) renderDistance(d.f, d.e !== undefined ? d.e : d.eco);
+      if (d.rx !== undefined && d.c !== undefined) {
+        const pinState = d.rx === 1 ? 'HIGH (Normal)' : 'LOW (¡Sin señal!)';
+        $('chipEcho').textContent = `Pin A2: ${pinState} | Recibidos: ${d.c} (${d.lb || '-'})`;
+      }
       renderRadar();
     }
 
