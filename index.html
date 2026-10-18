@@ -378,7 +378,7 @@
       }
       const dec = new TextDecoder();
       const enc = new TextEncoder();
-      let chWrite = null, chNotify = null;
+      let device = null, chWrite = null, chNotify = null;
       try {
         device = await navigator.bluetooth.requestDevice({
           acceptAllDevices: true,
