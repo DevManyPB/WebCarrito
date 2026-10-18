@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="Control por Bluetooth del carrito 4WD con Arduino Uno: manejo manual, modo autonomo, radar y calibracion del servo.">
+  <title>Carrito 4WD</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --bg: #eef2f6;
+      --card: #ffffff;
+      --line: #dfe5ec;
+      --text: #0f172a;
+      --muted: #64748b;
+      --soft: #f5f7fa;
+      --accent: #0891b2;
+      --accent-soft: #e0f5f9;
+      --ok: #059669;
+      --warn: #d97706;
+      --danger: #e11d48;
+      --pad: #e9eef3;
+      --pad-active: #0891b2;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b1220;
+        --card: #121b2c;
+        --line: #22304a;
+        --text: #e6edf6;
+        --muted: #8ea0b8;
+        --soft: #0f1726;
+        --accent: #22b8d6;
+        --accent-soft: #10303a;
+        --ok: #34d399;
+        --warn: #fbbf24;
+        --danger: #fb7185;
+        --pad: #1a2638;
+        --pad-active: #22b8d6;
+      }
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: max(12px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    }
+    .wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 12px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
+    h1 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
+    h2 { font-size: 13px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+    .muted { color: var(--muted); font-size: 13px; }
+    button {
+      font: inherit; color: inherit; border: 1px solid var(--line); background: var(--soft);
+      border-radius: 12px; padding: 10px 12px; cursor: pointer; font-weight: 600;
+      touch-action: manipulation; user-select: none; -webkit-user-select: none;
+    }
+    button:active { transform: scale(0.97); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+    button.selected { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+    /* Cabecera */
+    header.card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .logo { width: 38px; height: 38px; border-radius: 10px; background: #0f172a; display: grid; place-items: center; flex: none; }
+    .status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #94a3b8; flex: none; }
+    .dot.on { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+    .dot.wait { background: var(--warn); }
+    .conn-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* Layout principal */
+    .main { display: grid; gap: 12px; grid-template-columns: 1fr; }
+    @media (min-width: 820px) { .main { grid-template-columns: 1.05fr 1fr; } }
+
+    /* Telemetria */
+    .tele { display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; align-items: end; }
+    .big { font-size: 46px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+    .big small { font-size: 18px; font-weight: 700; color: var(--muted); margin-left: 4px; }
+    .big.near { color: var(--danger); }
+    .big.mid { color: var(--warn); }
+    .chips { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+    .chip { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--soft); white-space: nowrap; }
+    .chip.auto { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+    .bar { grid-column: 1 / -1; height: 8px; border-radius: 6px; background: var(--soft); border: 1px solid var(--line); overflow: hidden; }
+    .bar > i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .25s, background .25s; }
+    svg.radar { width: 100%; max-width: 360px; display: block; margin: 8px auto 0; }
+
+    /* Modo */
+    .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    .modes button { padding: 12px; }
+
+    /* D-pad */
+    .dpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 280px; margin: 0 auto; }
+    .dpad button {
+      aspect-ratio: 1 / 1; font-size: 26px; background: var(--pad); border-radius: 18px; border: 1px solid var(--line);
+      display: grid; place-items: center; padding: 0;
+    }
+    .dpad button.held { background: var(--pad-active); color: #fff; border-color: var(--pad-active); }
+    .dpad .stop { background: var(--danger); color: #fff; border-color: var(--danger); font-size: 15px; font-weight: 800; }
+    .dpad .empty { visibility: hidden; }
+    .hint { text-align: center; margin-top: 8px; }
+
+    .row { display: flex; align-items: center; gap: 10px; }
+    .row label { font-size: 13px; color: var(--muted); white-space: nowrap; }
+    input[type=range] { width: 100%; accent-color: var(--accent); }
+    .val { font-variant-numeric: tabular-nums; font-weight: 700; min-width: 44px; text-align: right; }
+
+    /* Calibracion */
+    details summary { cursor: pointer; font-weight: 700; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+    details summary::-webkit-details-marker { display: none; }
+    details summary::after { content: "▾"; color: var(--muted); }
+    details[open] summary::after { content: "▴"; }
+    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+    .save { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+    .save button { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 13px; }
+    .save span { font-size: 12px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    /* Registro */
+    .log { font: 12px/1.45 ui-monospace, Consolas, monospace; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 8px; height: 140px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+    .log .tx { color: var(--accent); }
+    .log .err { color: var(--danger); }
+
+    .help ol { margin: 6px 0 0; padding-left: 20px; }
+    .help li { margin: 4px 0; }
+    .support { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .support .chip.yes { color: var(--ok); border-color: var(--ok); }
+    .support .chip.no { color: var(--muted); text-decoration: line-through; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+
+    <!-- Cabecera y conexion -->
+    <header class="card">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 7l10 10-5 5V2l5 5L7 17"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Carrito 4WD · Arduino Uno</h1>
+          <div class="status"><span id="dot" class="dot"></span><span id="statusText">Sin conexión</span></div>
+        </div>
+      </div>
+      <div class="conn-buttons">
+        <button id="btnSerial" class="primary" title="Módulos HC-05 / HC-06 / JDY-31 emparejados, o cable USB">Conectar Bluetooth</button>
+        <button id="btnBle" title="Módulos BLE tipo HM-10 / AT-09 / BT05">Bluetooth BLE</button>
+        <button id="btnDisconnect" hidden>Desconectar</button>
+      </div>
+    </header>
+
+    <div class="main">
+
+      <!-- Telemetria y radar -->
+      <section class="card">
+        <h2>Sensor frontal</h2>
+        <div class="tele">
+          <div id="dist" class="big">--<small>cm</small></div>
+          <div class="chips">
+            <span id="chipMode" class="chip">MANUAL</span>
+            <span id="chipEcho" class="chip">Sin datos</span>
+          </div>
+          <div class="bar"><i id="distBar"></i></div>
+        </div>
+        <svg class="radar" viewBox="0 0 240 150" aria-label="Vista superior del carro y dirección del sensor">
+          <path d="M 30 125 A 90 90 0 0 1 210 125" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.5" stroke-dasharray="4 4"/>
+          <path d="M 65 125 A 55 55 0 0 1 175 125" fill="none" stroke="currentColor" stroke-opacity="0.12" stroke-width="1.5" stroke-dasharray="4 4"/>
+          <g id="mkI"><line x1="0" y1="0" x2="0" y2="-92" stroke="#d97706" stroke-width="1.5" stroke-dasharray="3 3"/><text x="0" y="-97" text-anchor="middle" fill="#d97706" font-size="10" font-weight="700">IZQ</text></g>
+          <g id="mkD"><line x1="0" y1="0" x2="0" y2="-92" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="3 3"/><text x="0" y="-97" text-anchor="middle" fill="#2563eb" font-size="10" font-weight="700">DER</text></g>
+          <g id="beam">
+            <path id="cone" d="M 0 0 L -26 -86 A 90 90 0 0 1 26 -86 Z" fill="#0891b2" fill-opacity="0.18" stroke="#0891b2" stroke-width="1"/>
+            <circle id="hit" cx="0" cy="-60" r="5" fill="#e11d48" visibility="hidden"/>
+            <rect x="-15" y="-9" width="30" height="9" rx="2" fill="#0284c7"/>
+          </g>
+          <rect x="94" y="117" width="52" height="30" rx="8" fill="#1e293b"/>
+          <rect x="86" y="119" width="7" height="12" rx="2" fill="#0f172a"/>
+          <rect x="147" y="119" width="7" height="12" rx="2" fill="#0f172a"/>
+          <rect x="86" y="134" width="7" height="12" rx="2" fill="#0f172a"/>
+          <rect x="147" y="134" width="7" height="12" rx="2" fill="#0f172a"/>
+          <circle cx="120" cy="125" r="4" fill="#22d3ee"/>
+          <text x="120" y="142" text-anchor="middle" fill="#e2e8f0" font-size="8" font-weight="700">FRENTE ▲</text>
+        </svg>
+        <p class="muted" id="angText" style="text-align:center;margin:4px 0 0">Servo: --°</p>
+      </section>
+
+      <!-- Manejo -->
+      <section class="card">
+        <h2>Manejo</h2>
+        <div class="modes">
+          <button id="btnManual" class="selected" data-cmd="M">Manual</button>
+          <button id="btnAuto" data-cmd="A">Autónomo</button>
+        </div>
+        <div class="dpad">
+          <span class="empty"></span>
+          <button data-drive="F" aria-label="Adelante">▲</button>
+          <span class="empty"></span>
+          <button data-drive="L" aria-label="Girar a la izquierda">◀</button>
+          <button id="btnStop" class="stop" aria-label="Detener">STOP</button>
+          <button data-drive="R" aria-label="Girar a la derecha">▶</button>
+          <span class="empty"></span>
+          <button data-drive="B" aria-label="Atrás">▼</button>
+          <span class="empty"></span>
+        </div>
+        <p class="muted hint">Mantén presionado para moverlo; al soltar se detiene. En PC: flechas o WASD, espacio para parar.</p>
+        <div class="row" style="margin-top:12px">
+          <label for="speed">Velocidad</label>
+          <input id="speed" type="range" min="100" max="255" step="5" value="180">
+          <span id="speedVal" class="val">180</span>
+        </div>
+      </section>
+    </div>
+
+    <!-- Calibracion del servo -->
+    <section class="card">
+      <details id="calDetails">
+        <summary>Calibración del servo</summary>
+        <p class="muted" style="margin:8px 0">Mueve el servo hasta que el sensor mire hacia una dirección y guárdala. Se guarda en la memoria del Arduino.</p>
+        <div class="row">
+          <label for="servo">Ángulo</label>
+          <input id="servo" type="range" min="10" max="170" value="39">
+          <span id="servoVal" class="val">39°</span>
+        </div>
+        <div class="steps">
+          <button data-step="-5">−5°</button>
+          <button data-step="-1">−1°</button>
+          <button data-step="1">+1°</button>
+          <button data-step="5">+5°</button>
+        </div>
+        <div class="save">
+          <button data-save="I">Guardar IZQ<span id="calI">94°</span></button>
+          <button data-save="C">Guardar FRENTE<span id="calC">39°</span></button>
+          <button data-save="D">Guardar DER<span id="calD">15°</span></button>
+        </div>
+        <button id="btnSweep" style="width:100%;margin-top:8px">Probar izquierda → frente → derecha</button>
+      </details>
+    </section>
+
+    <!-- Ayuda y registro -->
+    <section class="card help">
+      <details>
+        <summary>Cómo conectar</summary>
+        <ol class="muted">
+          <li>Enciende el carro. El LED del módulo Bluetooth parpadea rápido cuando está libre.</li>
+          <li><b>HC-05 / HC-06 / JDY-31 (Bluetooth clásico):</b> primero emparéjalo en los ajustes de Bluetooth del PC o del celular (PIN <b>1234</b> o <b>0000</b>). Luego pulsa <b>Conectar Bluetooth</b> y elige el módulo o su puerto COM. En Windows usa el COM <i>saliente</i>.</li>
+          <li><b>HM-10 / AT-09 / BT05 (BLE):</b> no hace falta emparejar. Pulsa <b>Bluetooth BLE</b> y elige el módulo.</li>
+          <li>Si no sabes cuál es el tuyo: prueba primero <b>Bluetooth BLE</b>; si no aparece en la lista, es clásico.</li>
+          <li>Usa <b>Chrome</b> o <b>Edge</b>. En iPhone solo funciona BLE con la app Bluefy.</li>
+        </ol>
+        <div class="support" id="support"></div>
+      </details>
+      <h2 style="margin-top:12px">Registro</h2>
+      <div id="log" class="log" aria-live="polite"></div>
+    </section>
+  </div>
+
+  <script>
+    'use strict';
+    const SPP_UUID = '00001101-0000-1000-8000-00805f9b34fb'; // Perfil serie (RFCOMM) del HC-05
+    const BLE_SERVICE = 0xffe0;                              // Servicio UART de HM-10 / AT-09
+    const BLE_CHAR = 0xffe1;
+    const RESEND_MS = 250;                                   // reenvio mientras se mantiene un boton (firmware para a los 800 ms)
+
+    const $ = (id) => document.getElementById(id);
+    const state = { mode: 'M', angle: 39, cal: { C: 39, I: 94, D: 15 }, lastData: 0 };
+
+    // ------------------------------------------------------------------ Registro
+    function log(text, cls) {
+      const box = $('log');
+      const line = document.createElement('div');
+      if (cls) line.className = cls;
+      line.textContent = new Date().toLocaleTimeString() + '  ' + text;
+      box.appendChild(line);
+      while (box.childNodes.length > 80) box.removeChild(box.firstChild);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    // ------------------------------------------------------------------ Transporte
+    // Ambos transportes exponen send(texto) y entregan lineas a onLine().
+    let link = null;
+    let sendChain = Promise.resolve();
+    let rxBuffer = '';
+
+    function onChunk(text) {
+      rxBuffer += text;
+      const lines = rxBuffer.split(/\r?\n/);
+      rxBuffer = lines.pop();
+      if (rxBuffer.length > 300) rxBuffer = '';
+      for (const l of lines) onLine(l.trim());
+    }
+
+    function send(cmd, quiet) {
+      if (!link) return;
+      if (!quiet) log('→ ' + cmd, 'tx');
+      sendChain = sendChain.then(() => link.write(cmd + '\n')).catch((e) => log('Error enviando: ' + e.message, 'err'));
+    }
+
+    function setStatus(text, kind) {
+      $('statusText').textContent = text;
+      $('dot').className = 'dot' + (kind ? ' ' + kind : '');
+      const connected = kind === 'on' || kind === 'wait';
+      $('btnSerial').hidden = connected;
+      $('btnBle').hidden = connected;
+      $('btnDisconnect').hidden = !connected;
+    }
+
+    async function connectSerial() {
+      if (!('serial' in navigator)) {
+        alert('Este navegador no permite Bluetooth clásico. Usa Chrome o Edge (PC o Android).');
+        return;
+      }
+      let port;
+      try {
+        try {
+          port = await navigator.serial.requestPort({ allowedBluetoothServiceClassIds: [SPP_UUID] });
+        } catch (e) {
+          if (e.name === 'NotFoundError') throw e;          // el usuario cerro el selector
+          port = await navigator.serial.requestPort();        // navegador sin filtro Bluetooth
+        }
+        setStatus('Conectando…', 'wait');
+        await port.open({ baudRate: 9600 });
+      } catch (e) {
+        if (e.name !== 'NotFoundError') log('No se pudo abrir el puerto: ' + e.message, 'err');
+        setStatus('Sin conexión');
+        return;
+      }
+      const writer = port.writable.getWriter();
+      const enc = new TextEncoder();
+      let reader = null;
+      link = {
+        kind: 'serial',
+        write: (t) => writer.write(enc.encode(t)),
+        close: async () => {
+          try { if (reader) await reader.cancel(); } catch (e) {}
+          try { writer.releaseLock(); } catch (e) {}
+          try { await port.close(); } catch (e) {}
+        }
+      };
+      const info = port.getInfo ? port.getInfo() : {};
+      const isBt = !!info.bluetoothServiceClassId;
+      setStatus(isBt ? 'Conectado por Bluetooth' : 'Conectado (puerto serie)', 'on');
+      log('Conectado ' + (isBt ? 'por Bluetooth clásico' : 'por puerto serie') + ' a 9600 baudios');
+      onConnected();
+
+      const dec = new TextDecoder();
+      (async () => {
+        try {
+          while (port.readable && link && link.kind === 'serial') {
+            reader = port.readable.getReader();
+            try {
+              for (;;) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                onChunk(dec.decode(value, { stream: true }));
+              }
+            } finally {
+              reader.releaseLock();
+            }
+          }
+        } catch (e) {
+          log('Conexión perdida: ' + e.message, 'err');
+        }
+        if (link && link.kind === 'serial') disconnect();
+      })();
+    }
+
+    async function connectBle() {
+      if (!navigator.bluetooth) {
+        alert('Este navegador no tiene Web Bluetooth. Usa Chrome o Edge (en iPhone, la app Bluefy).');
+        return;
+      }
+      let device, ch;
+      try {
+        device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [BLE_SERVICE] });
+        setStatus('Conectando a ' + (device.name || 'módulo') + '…', 'wait');
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(BLE_SERVICE);
+        ch = await service.getCharacteristic(BLE_CHAR);
+        await ch.startNotifications();
+      } catch (e) {
+        if (e.name !== 'NotFoundError') {
+          log('BLE: ' + e.message + ' (¿es un módulo clásico? usa "Conectar Bluetooth")', 'err');
+          try { if (device && device.gatt.connected) device.gatt.disconnect(); } catch (x) {}
+        }
+        setStatus('Sin conexión');
+        return;
+      }
+      const dec = new TextDecoder();
+      const enc = new TextEncoder();
+      ch.addEventListener('characteristicvaluechanged', (ev) => onChunk(dec.decode(ev.target.value)));
+      device.addEventListener('gattserverdisconnected', () => {
+        if (link && link.kind === 'ble') { log('El módulo BLE se desconectó', 'err'); disconnect(); }
+      });
+      link = {
+        kind: 'ble',
+        write: async (t) => {
+          const data = enc.encode(t);
+          for (let i = 0; i < data.length; i += 20) {           // MTU por defecto de BLE: 20 bytes
+            const part = data.slice(i, i + 20);
+            if (ch.writeValueWithoutResponse) await ch.writeValueWithoutResponse(part);
+            else await ch.writeValue(part);
+          }
+        },
+        close: async () => { try { device.gatt.disconnect(); } catch (e) {} }
+      };
+      setStatus('Conectado por BLE · ' + (device.name || 'módulo'), 'on');
+      log('Conectado por BLE a ' + (device.name || 'módulo'));
+      onConnected();
+    }
+
+    async function disconnect() {
+      stopDrive(false);
+      const l = link;
+      link = null;
+      sendChain = Promise.resolve();
+      if (l) await l.close();
+      setStatus('Sin conexión');
+      $('chipEcho').textContent = 'Sin datos';
+      log('Desconectado');
+    }
+
+    function onConnected() {
+      rxBuffer = '';
+      send('V' + $('speed').value, true);
+    }
+
+    // ------------------------------------------------------------------ Telemetria
+    function onLine(line) {
+      if (!line) return;
+      if (line[0] !== '{') { log(line); return; }
+      let d;
+      try { d = JSON.parse(line); } catch (e) { return; }
+      state.lastData = Date.now();
+      if (d.c !== undefined) { state.cal = { C: d.c, I: d.i, D: d.d }; renderCal(); }
+      if (d.m !== undefined) setModeUi(d.m);
+      const ang = d.a !== undefined ? d.a : d.ang;
+      if (ang !== undefined) state.angle = ang;
+      if (d.v !== undefined && document.activeElement !== $('speed')) { $('speed').value = d.v; $('speedVal').textContent = d.v; }
+      if (d.f !== undefined) renderDistance(d.f, d.e !== undefined ? d.e : d.eco);
+      renderRadar();
+    }
+
+    function renderDistance(f, eco) {
+      const free = eco === 0 || f >= 400;
+      const el = $('dist');
+      el.innerHTML = (free ? '+300' : Math.round(f)) + '<small>cm</small>';
+      el.className = 'big' + (!free && f <= 25 ? ' near' : !free && f <= 50 ? ' mid' : '');
+      const pct = free ? 100 : Math.min(100, (f / 150) * 100);
+      const bar = $('distBar');
+      bar.style.width = pct + '%';
+      bar.style.background = !free && f <= 25 ? 'var(--danger)' : !free && f <= 50 ? 'var(--warn)' : 'var(--ok)';
+      $('chipEcho').textContent = free ? 'Camino libre' : 'Eco ' + eco + ' µs';
+      state.dist = free ? null : f;
+    }
+
+    function renderRadar() {
+      const rot = (a) => {
+        // Rotacion en el dibujo: izquierda guardada = -70°, frente = 0°, derecha guardada = +70°
+        const { C, I, D } = state.cal;
+        if (a === C) return 0;
+        const towardsI = (I - C) !== 0 && Math.sign(a - C) === Math.sign(I - C);
+        return towardsI ? -70 * (a - C) / (I - C) : 70 * (a - C) / (D - C || 1);
+      };
+      $('beam').setAttribute('transform', `translate(120,125) rotate(${rot(state.angle)})`);
+      $('mkI').setAttribute('transform', `translate(120,125) rotate(${rot(state.cal.I)})`);
+      $('mkD').setAttribute('transform', `translate(120,125) rotate(${rot(state.cal.D)})`);
+      const hit = $('hit');
+      if (state.dist != null) {
+        // Radio del dibujo: 22 px (pegado al sensor) a 88 px (1 m o mas)
+        hit.setAttribute('cy', String(-(22 + Math.min(1, state.dist / 100) * 66)));
+        hit.setAttribute('visibility', 'visible');
+      } else {
+        hit.setAttribute('visibility', 'hidden');
+      }
+      const dir = Math.abs(state.angle - state.cal.C) <= 8 ? 'frente' : rot(state.angle) < 0 ? 'izquierda' : 'derecha';
+      $('angText').textContent = `Servo: ${state.angle}° (${dir})`;
+    }
+
+    function renderCal() {
+      $('calI').textContent = state.cal.I + '°';
+      $('calC').textContent = state.cal.C + '°';
+      $('calD').textContent = state.cal.D + '°';
+    }
+
+    function setModeUi(m) {
+      state.mode = m;
+      $('btnManual').classList.toggle('selected', m === 'M');
+      $('btnAuto').classList.toggle('selected', m === 'A');
+      $('chipMode').textContent = m === 'A' ? 'AUTÓNOMO' : 'MANUAL';
+      $('chipMode').className = 'chip' + (m === 'A' ? ' auto' : '');
+    }
+
+    // Aviso si el carro deja de mandar datos
+    setInterval(() => {
+      if (!link) return;
+      const age = Date.now() - state.lastData;
+      if (state.lastData && age > 2500) setStatus('Conectado, pero sin datos del carro', 'wait');
+      else if (state.lastData) setStatus(link.kind === 'ble' ? 'Conectado por BLE' : 'Conectado', 'on');
+    }, 1000);
+
+    // ------------------------------------------------------------------ Manejo
+    let driveTimer = null, driveCmd = null, driveBtn = null;
+
+    function startDrive(cmd, btn) {
+      if (!link) { log('Conéctate primero', 'err'); return; }
+      if (driveCmd === cmd) return;
+      stopDrive(false);
+      driveCmd = cmd; driveBtn = btn;
+      if (btn) btn.classList.add('held');
+      setModeUi('M');
+      send(cmd);
+      driveTimer = setInterval(() => send(cmd, true), RESEND_MS);
+    }
+
+    function stopDrive(sendStop = true) {
+      if (driveTimer) clearInterval(driveTimer);
+      driveTimer = null;
+      if (driveBtn) driveBtn.classList.remove('held');
+      const wasDriving = driveCmd !== null;
+      driveCmd = null; driveBtn = null;
+      if (sendStop && wasDriving) { send('S'); send('S', true); }   // doble por si se pierde uno
+    }
+
+    document.querySelectorAll('[data-drive]').forEach((btn) => {
+      const cmd = btn.dataset.drive;
+      btn.addEventListener('pointerdown', (e) => { e.preventDefault(); btn.setPointerCapture(e.pointerId); startDrive(cmd, btn); });
+      btn.addEventListener('pointerup', () => stopDrive());
+      btn.addEventListener('pointercancel', () => stopDrive());
+      btn.addEventListener('lostpointercapture', () => { if (driveBtn === btn) stopDrive(); });
+      btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    });
+    $('btnStop').addEventListener('click', () => { stopDrive(false); send('S'); send('S', true); });
+
+    const keyMap = { ArrowUp: 'F', KeyW: 'F', ArrowDown: 'B', KeyS: 'B', ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R' };
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      if (e.code === 'Space') { e.preventDefault(); stopDrive(false); send('S'); return; }
+      const cmd = keyMap[e.code];
+      if (!cmd || e.repeat) return;
+      e.preventDefault();
+      startDrive(cmd, document.querySelector(`[data-drive="${cmd}"]`));
+    });
+    document.addEventListener('keyup', (e) => { if (keyMap[e.code] === driveCmd) stopDrive(); });
+    window.addEventListener('blur', () => stopDrive());
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stopDrive(); });
+
+    document.querySelectorAll('[data-cmd]').forEach((btn) => btn.addEventListener('click', () => {
+      stopDrive(false);
+      send(btn.dataset.cmd);
+      setModeUi(btn.dataset.cmd);
+    }));
+
+    let speedTimer = null;
+    $('speed').addEventListener('input', (e) => {
+      $('speedVal').textContent = e.target.value;
+      clearTimeout(speedTimer);
+      speedTimer = setTimeout(() => send('V' + e.target.value), 200);
+    });
+
+    // ------------------------------------------------------------------ Calibracion
+    let servoTimer = null;
+    function setServo(a, immediate) {
+      a = Math.max(10, Math.min(170, Math.round(a)));
+      $('servo').value = a;
+      $('servoVal').textContent = a + '°';
+      clearTimeout(servoTimer);
+      const go = () => { send('S' + a); state.angle = a; renderRadar(); };
+      if (immediate) go(); else servoTimer = setTimeout(go, 180);
+    }
+    $('servo').addEventListener('input', (e) => setServo(e.target.value));
+    document.querySelectorAll('[data-step]').forEach((b) => b.addEventListener('click', () => setServo(+$('servo').value + +b.dataset.step, true)));
+    document.querySelectorAll('[data-save]').forEach((b) => b.addEventListener('click', () => {
+      const a = +$('servo').value;
+      state.cal[b.dataset.save] = a;
+      renderCal(); renderRadar();
+      send(b.dataset.save + a);
+    }));
+    $('btnSweep').addEventListener('click', () => {
+      const { I, C, D } = state.cal;
+      setServo(I, true);
+      setTimeout(() => setServo(C, true), 900);
+      setTimeout(() => setServo(D, true), 1800);
+      setTimeout(() => setServo(C, true), 2700);
+    });
+
+    // ------------------------------------------------------------------ Inicio
+    $('btnSerial').addEventListener('click', connectSerial);
+    $('btnBle').addEventListener('click', connectBle);
+    $('btnDisconnect').addEventListener('click', disconnect);
+
+    (function showSupport() {
+      const items = [
+        ['Bluetooth clásico / USB (Web Serial)', 'serial' in navigator],
+        ['Bluetooth BLE (Web Bluetooth)', !!navigator.bluetooth]
+      ];
+      $('support').innerHTML = items.map(([t, ok]) => `<span class="chip ${ok ? 'yes' : 'no'}">${t}</span>`).join('');
+      if (!('serial' in navigator)) $('btnSerial').disabled = true;
+      if (!navigator.bluetooth) $('btnBle').disabled = true;
+      if (!('serial' in navigator) && !navigator.bluetooth) {
+        log('Este navegador no soporta Bluetooth web. Abre la app en Chrome o Edge.', 'err');
+      }
+    })();
+
+    renderCal();
+    renderRadar();
+  </script>
+</body>
+</html>
