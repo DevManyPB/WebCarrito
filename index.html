@@ -269,7 +269,7 @@
     const RESEND_MS = 250;                                   // reenvio mientras se mantiene un boton (firmware para a los 800 ms)
 
     const $ = (id) => document.getElementById(id);
-    const state = { mode: 'M', angle: 39, cal: { C: 39, I: 94, D: 15 }, lastData: 0 };
+    const state = { mode: 'M', targetMode: 'M', modeLockUntil: 0, angle: 39, cal: { C: 39, I: 94, D: 15 }, lastData: 0 };
 
     // ------------------------------------------------------------------ Registro
     function log(text, cls) {
@@ -439,7 +439,14 @@
       try { d = JSON.parse(line); } catch (e) { return; }
       state.lastData = Date.now();
       if (d.c !== undefined) { state.cal = { C: d.c, I: d.i, D: d.d }; renderCal(); }
-      if (d.m !== undefined) setModeUi(d.m);
+      if (d.m !== undefined) {
+        if (!state.modeLockUntil || Date.now() > state.modeLockUntil) {
+          setModeUi(d.m);
+        } else if (d.m === state.targetMode) {
+          state.modeLockUntil = 0; // Confirmado por el Arduino
+          setModeUi(d.m);
+        }
+      }
       const ang = d.a !== undefined ? d.a : d.ang;
       if (ang !== undefined) state.angle = ang;
       if (d.v !== undefined && document.activeElement !== $('speed')) { $('speed').value = d.v; $('speedVal').textContent = d.v; }
@@ -514,7 +521,12 @@
       stopDrive(false);
       driveCmd = cmd; driveBtn = btn;
       if (btn) btn.classList.add('held');
-      setModeUi('M');
+      if (state.mode !== 'M') {
+        state.targetMode = 'M';
+        state.modeLockUntil = Date.now() + 2500;
+        setModeUi('M');
+        send('M');
+      }
       send(cmd);
       driveTimer = setInterval(() => send(cmd, true), RESEND_MS);
     }
@@ -536,7 +548,17 @@
       btn.addEventListener('lostpointercapture', () => { if (driveBtn === btn) stopDrive(); });
       btn.addEventListener('contextmenu', (e) => e.preventDefault());
     });
-    $('btnStop').addEventListener('click', () => { stopDrive(false); send('S'); send('S', true); });
+    $('btnStop').addEventListener('click', () => {
+      stopDrive(false);
+      if (state.mode !== 'M') {
+        state.targetMode = 'M';
+        state.modeLockUntil = Date.now() + 2500;
+        setModeUi('M');
+        send('M');
+      }
+      send('S');
+      send('S', true);
+    });
 
     const keyMap = { ArrowUp: 'F', KeyW: 'F', ArrowDown: 'B', KeyS: 'B', ArrowLeft: 'L', KeyA: 'L', ArrowRight: 'R', KeyD: 'R' };
     document.addEventListener('keydown', (e) => {
@@ -551,10 +573,28 @@
     window.addEventListener('blur', () => stopDrive());
     document.addEventListener('visibilitychange', () => { if (document.hidden) stopDrive(); });
 
-    document.querySelectorAll('[data-cmd]').forEach((btn) => btn.addEventListener('click', () => {
+    let modeRetryTimer = null;
+    function changeMode(newMode) {
       stopDrive(false);
-      send(btn.dataset.cmd);
-      setModeUi(btn.dataset.cmd);
+      state.targetMode = newMode;
+      state.modeLockUntil = Date.now() + 2500;
+      setModeUi(newMode);
+      send(newMode);
+      if (newMode === 'M') {
+        send('S', true); // Asegurar parada total de motores
+      }
+
+      clearTimeout(modeRetryTimer);
+      modeRetryTimer = setTimeout(() => {
+        if (state.mode !== state.targetMode && link) {
+          send(state.targetMode);
+          if (state.targetMode === 'M') send('S', true);
+        }
+      }, 600);
+    }
+
+    document.querySelectorAll('[data-cmd]').forEach((btn) => btn.addEventListener('click', () => {
+      changeMode(btn.dataset.cmd);
     }));
 
     let speedTimer = null;
