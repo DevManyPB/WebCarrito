@@ -404,14 +404,28 @@
           const data = enc.encode(t);
           for (let i = 0; i < data.length; i += 20) {           // MTU por defecto de BLE: 20 bytes
             const part = data.slice(i, i + 20);
-            if (ch.writeValueWithoutResponse) await ch.writeValueWithoutResponse(part);
-            else await ch.writeValue(part);
+            let written = false;
+            // 1. Intentar Write With Response (requerido por la mayoría de clones AT-09 / HM-10)
+            if (ch.properties && ch.properties.write && ch.writeValueWithResponse) {
+              try { await ch.writeValueWithResponse(part); written = true; } catch (e) {}
+            }
+            // 2. Si no o si falló, intentar writeValue estándar
+            if (!written && ch.writeValue) {
+              try { await ch.writeValue(part); written = true; } catch (e) {}
+            }
+            // 3. Fallback a Write Without Response si la característica lo soporta
+            if (!written && ch.writeValueWithoutResponse) {
+              try { await ch.writeValueWithoutResponse(part); written = true; } catch (e) {}
+            }
+            if (!written) {
+              throw new Error('No se pudo escribir en la característica BLE');
+            }
           }
         },
         close: async () => { try { device.gatt.disconnect(); } catch (e) {} }
       };
       setStatus('Conectado por BLE · ' + (device.name || 'módulo'), 'on');
-      log('Conectado por BLE a ' + (device.name || 'módulo'));
+      log('Conectado por BLE a ' + (device.name || 'módulo') + ' (Modo UART listo)');
       onConnected();
     }
 
