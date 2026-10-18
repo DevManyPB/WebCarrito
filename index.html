@@ -376,14 +376,33 @@
         alert('Este navegador no tiene Web Bluetooth. Usa Chrome o Edge (en iPhone, la app Bluefy).');
         return;
       }
-      let device, ch;
+      const dec = new TextDecoder();
+      const enc = new TextEncoder();
+      let chWrite = null, chNotify = null;
       try {
-        device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [BLE_SERVICE] });
+        device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: [BLE_SERVICE, '0000ffe0-0000-1000-8000-00805f9b34fb', '6e400001-b5a3-f393-e0a9-e50e24dcca9e']
+        });
         setStatus('Conectando a ' + (device.name || 'módulo') + '…', 'wait');
         const server = await device.gatt.connect();
         const service = await server.getPrimaryService(BLE_SERVICE);
-        ch = await service.getCharacteristic(BLE_CHAR);
-        await ch.startNotifications();
+        const chars = await service.getCharacteristics();
+        
+        for (const c of chars) {
+          const p = c.properties;
+          const shortUuid = c.uuid.replace(/-/g, '').slice(4, 8);
+          log('BLE ' + shortUuid + ': Write=' + p.write + ' NoResp=' + p.writeWithoutResponse + ' Notify=' + p.notify);
+          if (p.notify || p.indicate) chNotify = c;
+          if (p.write || p.writeWithoutResponse) chWrite = c;
+        }
+        if (!chNotify && chars.length > 0) chNotify = chars[0];
+        if (!chWrite && chars.length > 0) chWrite = chars[0];
+
+        if (chNotify) {
+          await chNotify.startNotifications();
+          chNotify.addEventListener('characteristicvaluechanged', (ev) => onChunk(dec.decode(ev.target.value)));
+        }
       } catch (e) {
         if (e.name !== 'NotFoundError') {
           log('BLE: ' + e.message + ' (¿es un módulo clásico? usa "Conectar Bluetooth")', 'err');
@@ -392,40 +411,39 @@
         setStatus('Sin conexión');
         return;
       }
-      const dec = new TextDecoder();
-      const enc = new TextEncoder();
-      ch.addEventListener('characteristicvaluechanged', (ev) => onChunk(dec.decode(ev.target.value)));
       device.addEventListener('gattserverdisconnected', () => {
         if (link && link.kind === 'ble') { log('El módulo BLE se desconectó', 'err'); disconnect(); }
       });
       link = {
         kind: 'ble',
         write: async (t) => {
+          if (!chWrite) throw new Error('Sin característica de escritura');
           const data = enc.encode(t);
-          for (let i = 0; i < data.length; i += 20) {           // MTU por defecto de BLE: 20 bytes
+          for (let i = 0; i < data.length; i += 20) {
             const part = data.slice(i, i + 20);
-            let written = false;
-            // 1. Intentar Write With Response (requerido por la mayoría de clones AT-09 / HM-10)
-            if (ch.properties && ch.properties.write && ch.writeValueWithResponse) {
-              try { await ch.writeValueWithResponse(part); written = true; } catch (e) {}
+            const p = chWrite.properties;
+            let ok = false;
+            if (p && p.writeWithoutResponse && chWrite.writeValueWithoutResponse) {
+              try { await chWrite.writeValueWithoutResponse(part); ok = true; } catch (err) {}
             }
-            // 2. Si no o si falló, intentar writeValue estándar
-            if (!written && ch.writeValue) {
-              try { await ch.writeValue(part); written = true; } catch (e) {}
+            if (!ok && chWrite.writeValueWithResponse) {
+              try { await chWrite.writeValueWithResponse(part); ok = true; } catch (err) {}
             }
-            // 3. Fallback a Write Without Response si la característica lo soporta
-            if (!written && ch.writeValueWithoutResponse) {
-              try { await ch.writeValueWithoutResponse(part); written = true; } catch (e) {}
+            if (!ok && chWrite.writeValue) {
+              try { await chWrite.writeValue(part); ok = true; } catch (err) {}
             }
-            if (!written) {
-              throw new Error('No se pudo escribir en la característica BLE');
+            if (!ok && chWrite.writeValueWithoutResponse) {
+              try { await chWrite.writeValueWithoutResponse(part); ok = true; } catch (err) {}
+            }
+            if (!ok) {
+              throw new Error('GATT write falló');
             }
           }
         },
         close: async () => { try { device.gatt.disconnect(); } catch (e) {} }
       };
       setStatus('Conectado por BLE · ' + (device.name || 'módulo'), 'on');
-      log('Conectado por BLE a ' + (device.name || 'módulo') + ' (Modo UART listo)');
+      log('Conectado por BLE a ' + (device.name || 'módulo') + ' (Listo)');
       onConnected();
     }
 
